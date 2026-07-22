@@ -1,0 +1,82 @@
+# ============================================================================
+# SAFEX AI — Render blueprint
+#
+# Deploy with: Render Dashboard -> New -> Blueprint -> point at this repo.
+# ============================================================================
+services:
+  - type: web
+    name: safex-ai
+    runtime: python
+    plan: standard          # 2 GB RAM. See the note at the bottom of this file.
+    region: oregon          # change to frankfurt / singapore / ohio as needed
+    branch: main
+
+    buildCommand: "chmod +x build.sh && ./build.sh"
+
+    # One worker only. Each worker loads its own copy of both YOLO models, so a
+    # second worker doubles memory for no throughput gain on a 1-vCPU plan.
+    # $PORT is injected by Render; binding 0.0.0.0 is required or the health
+    # check can never reach the service.
+    startCommand: >-
+      uvicorn server:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+      --timeout-keep-alive 65
+      --no-access-log
+
+    healthCheckPath: /healthz
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      # Keep Ultralytics and matplotlib caches on a writable path.
+      - key: YOLO_CONFIG_DIR
+        value: /tmp/ultralytics
+      - key: MPLCONFIGDIR
+        value: /tmp/matplotlib
+
+      # Small instances: extra BLAS/OpenMP threads cause contention, not speed.
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"
+      - key: TORCH_THREADS
+        value: "1"
+
+      # Inference tuning — benchmarked on 1 vCPU:
+      #   fire @416 ≈ 55 ms, people @320 ≈ 43 ms
+      - key: FIRE_IMGSZ
+        value: "416"
+      - key: PEOPLE_IMGSZ
+        value: "320"
+      - key: DETECT_STRIDE
+        value: "2"
+      - key: MAX_CONCURRENT_INFERENCE
+        value: "2"
+
+      - key: WARMUP_ON_START
+        value: "1"
+      - key: SESSION_TTL_SECONDS
+        value: "90"
+      - key: LOG_LEVEL
+        value: "INFO"
+
+      # Lock this down to your own domain once the service is public.
+      - key: ALLOWED_ORIGINS
+        value: "*"
+
+# ---------------------------------------------------------------------------
+# Plan sizing
+#
+# CPU-only torch plus both YOLOv8n networks settles around 400–500 MB resident
+# once warmed. The 512 MB tiers (free / starter) sit right on that line and will
+# be OOM-killed under any real load, so `standard` (2 GB) is the smallest plan
+# that behaves. If you must run on 512 MB: set WARMUP_ON_START=0, drop
+# FIRE_IMGSZ to 320, and expect the first request after a cold start to take
+# 20–40 s while the weights load.
+#
+# The free tier also spins down after inactivity — the first visitor then waits
+# out a cold boot before the camera stream produces anything.
+# ---------------------------------------------------------------------------

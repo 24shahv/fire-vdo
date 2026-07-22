@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Ultralytics / torch caches
+runs/
+*.onnx
+*.engine
+.ultralytics/
+
+# Training data — never deploy this. The fire_dataset folder from the original
+# project is ~100 MB of Roboflow images that the server never reads. Keeping it
+# out of the repo is the single biggest thing you can do for build times.
+fire_dataset/
+datasets/
+
+# Local
+.env
+.DS_Store
+*.log
+.idea/
+.vscode/

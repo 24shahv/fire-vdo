@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SAFEX AI — Evacuation Console</title>
+<meta name="description" content="Live fire, smoke and occupancy detection with AI-directed exit routing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div>
+      <h1>SAFEX<span>AI</span></h1>
+      <p class="brand-sub">Evacuation console</p>
+    </div>
+  </div>
+
+  <div class="link-state">
+    <span class="dot" id="linkDot" data-state="idle"></span>
+    <span class="link-label" id="linkLabel">Standby</span>
+  </div>
+</header>
+
+<!-- Signature element: the illuminated exit directive -->
+<section class="directive" id="directive" data-mode="idle" aria-live="polite">
+  <span class="chev chev-left" aria-hidden="true">
+    <svg viewBox="0 0 48 32"><path d="M20 2 L4 16 L20 30 M6 16 H46" /></svg>
+  </span>
+
+  <div class="directive-body">
+    <p class="directive-eyebrow" id="directiveEyebrow">Awaiting camera</p>
+    <p class="directive-text" id="directiveText">SYSTEM IDLE</p>
+  </div>
+
+  <span class="chev chev-right" aria-hidden="true">
+    <svg viewBox="0 0 48 32"><path d="M28 2 L44 16 L28 30 M42 16 H2" /></svg>
+  </span>
+</section>
+
+<main class="console">
+
+  <!-- ─────────────────────────── live feed ─────────────────────────── -->
+  <section class="stage-wrap">
+    <div class="stage" id="stage">
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="overlay" width="640" height="480"></canvas>
+
+      <div class="stage-gate" id="gate">
+        <div class="gate-inner">
+          <h2>This console uses your camera</h2>
+          <p>
+            Video is analysed frame by frame and never stored. Your browser
+            asks for permission on the next tap.
+          </p>
+          <button class="btn-primary" id="startBtn">Start camera</button>
+          <p class="gate-note" id="gateNote"></p>
+        </div>
+      </div>
+
+      <div class="stage-badges">
+        <span class="badge" id="camBadge">CAM 0</span>
+        <span class="badge badge-fire" id="fireBadge" hidden>FIRE</span>
+        <span class="badge badge-smoke" id="smokeBadge" hidden>SMOKE</span>
+      </div>
+    </div>
+
+    <div class="stage-controls">
+      <label class="field">
+        <span>Camera</span>
+        <select id="deviceSelect"><option value="">Default</option></select>
+      </label>
+
+      <label class="field">
+        <span>Camera ID</span>
+        <select id="camIdSelect">
+          <option value="0">CAM 0</option>
+          <option value="1">CAM 1</option>
+          <option value="2">CAM 2</option>
+          <option value="3">CAM 3</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Target rate</span>
+        <select id="rateSelect">
+          <option value="4">4 fps — light</option>
+          <option value="8" selected>8 fps — balanced</option>
+          <option value="12">12 fps — hungry</option>
+          <option value="0">Unthrottled</option>
+        </select>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" id="voiceToggle" checked>
+        <span>Voice alerts</span>
+      </label>
+
+      <button class="btn-ghost" id="stopBtn" disabled>Stop</button>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── telemetry ─────────────────────────── -->
+  <aside class="rail">
+
+    <div class="readout-grid">
+      <div class="readout">
+        <span class="readout-label">In building</span>
+        <span class="readout-value" id="totalPeople">0</span>
+      </div>
+      <div class="readout">
+        <span class="readout-label">This camera</span>
+        <span class="readout-value" id="camPeople">0</span>
+      </div>
+      <div class="readout">
+        <span class="readout-label">Feeds</span>
+        <span class="readout-value" id="camCount">0</span>
+      </div>
+      <div class="readout">
+        <span class="readout-label">Rate</span>
+        <span class="readout-value" id="fps">0<small>fps</small></span>
+      </div>
+    </div>
+
+    <section class="panel">
+      <h2 class="panel-title">Floor plan</h2>
+      <canvas id="minimap" width="320" height="320"></canvas>
+      <ul class="legend">
+        <li><i class="sw-free"></i>Clear</li>
+        <li><i class="sw-wall"></i>Wall</li>
+        <li><i class="sw-fire"></i>Fire</li>
+        <li><i class="sw-exit"></i>Exit</li>
+        <li><i class="sw-person"></i>Person</li>
+        <li><i class="sw-route"></i>Route</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">Exit load</h2>
+      <dl class="stat-list" id="exitLoad">
+        <div class="stat"><dt>Exit A</dt><dd id="loadA">—</dd></div>
+        <div class="stat"><dt>Exit B</dt><dd id="loadB">—</dd></div>
+      </dl>
+      <p class="panel-note" id="overrideNote" hidden>
+        Crowd override active — routing everyone to Exit B.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">Signal</h2>
+      <dl class="stat-list">
+        <div class="stat"><dt>Smoke pixels</dt><dd id="smokePixels">—</dd></div>
+        <div class="stat"><dt>Inference</dt><dd id="latency">—</dd></div>
+        <div class="stat"><dt>Transport</dt><dd id="transport">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="panel panel-share">
+      <h2 class="panel-title">Add another camera</h2>
+      <p class="panel-note">
+        Open this link on a phone and pick a different camera ID. Both feeds
+        merge into one building view.
+      </p>
+      <div class="share-row">
+        <input type="text" id="shareLink" readonly>
+        <button class="btn-ghost" id="copyBtn">Copy</button>
+      </div>
+    </section>
+
+  </aside>
+</main>
+
+<footer class="footer">
+  <span>Detection runs server-side on YOLOv8 · frames are processed in memory and discarded</span>
+</footer>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

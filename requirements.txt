@@ -1,0 +1,41 @@
+# ============================================================================
+# SAFEX AI — Render deployment requirements
+#
+# The extra index below is not optional. On Linux, `pip install torch` pulls the
+# CUDA build from PyPI: ~800 MB of NVIDIA CUDA libraries that a Render web
+# service can neither use nor fit in its build cache. The `+cpu` local version
+# tag forces the CPU-only wheel, which is roughly a quarter of the size.
+# ============================================================================
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# ── web layer ───────────────────────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.34.0          # brings uvloop, httptools and websockets
+python-multipart==0.0.20           # multipart/form-data frame uploads
+
+# ── inference stack ─────────────────────────────────────────────────────────
+# torch >= 2.6 is required: best.pt was serialised with the newer zip format
+# (it carries a .storage_alignment record) and Ultralytics needs a version that
+# understands the weights_only default introduced in 2.6.
+torch==2.8.0+cpu
+torchvision==0.23.0+cpu
+ultralytics==8.3.40
+
+# Headless OpenCV — the GUI build needs libGL.so.1, which Render's Python
+# runtime does not ship. See build.sh: ultralytics declares a hard dependency on
+# opencv-python, so the GUI copy is removed after install.
+opencv-python-headless==4.13.0.92
+
+numpy>=2.0,<2.5
+pillow>=10.3,<13
+
+# ── ultralytics transitive deps, bounded for reproducible builds ────────────
+pyyaml>=6.0,<7
+requests>=2.31,<3
+scipy>=1.11,<2
+matplotlib>=3.8,<4
+pandas>=2.1,<3
+psutil>=5.9,<8
+py-cpuinfo>=9.0
+tqdm>=4.66,<5
+ultralytics-thop>=2.0,<3
