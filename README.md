@@ -235,4 +235,5 @@ python server.py          # http://localhost:8000
 - Session sweeper reclaims idle state: 14 sessions → 2 after TTL
 - Fire detected in 12/25 validation images at the default threshold
 #   f i r e - v d o  
+ #   f i r e - v d o  
  
