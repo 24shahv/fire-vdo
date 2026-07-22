@@ -363,6 +363,121 @@ button:focus-visible {
 .btn-ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-mute); }
 .btn-ghost:disabled { opacity: .4; cursor: not-allowed; }
 
+/* ─────────────────────── remote camera wall ──────────────────────────── */
+.wall {
+  margin-top: 13px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.wall[hidden] { display: none; }
+
+.wall-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.wall-head .panel-title { margin: 0; }
+
+.wall-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--exit);
+}
+
+.wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.tile {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  background: #06100C;
+  cursor: pointer;
+  transition: border-color .2s, opacity .3s;
+}
+
+.tile:hover { border-color: var(--ink-mute); }
+
+.tile[data-fire="1"] {
+  border-color: var(--fire);
+  box-shadow: 0 0 0 1px var(--fire) inset;
+}
+
+.tile[data-stale="1"] { opacity: .38; }
+
+/* clicking a tile blows it up to fill the row */
+.tile[data-focus="1"] { grid-column: 1 / -1; }
+
+.tile-media {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+}
+
+/* Remote frames arrive already mirrored (the sender flips before upload) and
+   the boxes share that space, so neither layer gets a transform here. */
+.tile-media img,
+.tile-media canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+}
+
+.tile-media canvas { pointer-events: none; }
+
+.tile-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+  background: rgba(6, 16, 12, .9);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.tile-bar b {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: .13em;
+}
+
+.tile-bar .spacer { flex: 1; }
+
+.tile-flag {
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.tile-flag.fire  { background: var(--fire);  color: #fff; }
+.tile-flag.smoke { background: var(--smoke); color: #241800; }
+.tile-flag.stale { border: 1px solid var(--line); color: var(--ink-mute); }
+
+.wall-empty {
+  grid-column: 1 / -1;
+  padding: 18px 4px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-mute);
+}
+
 /* ────────────────────────────── rail ─────────────────────────────────── */
 .rail { display: flex; flex-direction: column; gap: 13px; min-width: 0; }
 

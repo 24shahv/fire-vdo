@@ -31,7 +31,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import config
@@ -128,6 +128,70 @@ async def api_config():
         "crowd_override_threshold": config.CROWD_OVERRIDE_THRESHOLD,
         "alert_cooldown": config.ALERT_COOLDOWN,
     }
+
+
+@app.get("/api/cameras")
+async def api_cameras(request: Request):
+    """
+    Every camera in a session, with its latest detections.
+
+    This is what lets two people in different places watch each other's feeds:
+    the browser polls this for metadata, then pulls each frame from /api/frame.
+    """
+    session_id = request.query_params.get("session")
+    if not session_id:
+        raise HTTPException(400, "session is required")
+
+    try:
+        exclude = int(request.query_params["exclude"])
+    except (KeyError, TypeError, ValueError):
+        exclude = None
+
+    session = store.get_or_create(session_id)
+
+    with session.lock:
+        cams = session.wall(exclude=exclude)
+
+    return {
+        "session_id": session.session_id,
+        "enabled": config.REMOTE_VIEW_ENABLED,
+        "stale_after": config.REMOTE_STALE_SECONDS,
+        "frame": {"w": config.FRAME_WIDTH, "h": config.FRAME_HEIGHT},
+        "cameras": cams,
+    }
+
+
+@app.get("/api/frame")
+async def api_frame(request: Request):
+    """Latest JPEG from one camera in a session."""
+    if not config.REMOTE_VIEW_ENABLED:
+        raise HTTPException(404, "remote viewing is disabled")
+
+    session_id = request.query_params.get("session")
+    if not session_id:
+        raise HTTPException(400, "session is required")
+
+    try:
+        cam_id = int(request.query_params.get("cam", 0))
+    except (TypeError, ValueError):
+        cam_id = 0
+
+    session = store.get_or_create(session_id)
+
+    with session.lock:
+        payload, taken_at = session.frame_of(cam_id)
+
+    if not payload:
+        raise HTTPException(404, "no frame for that camera yet")
+
+    return Response(
+        content=payload,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "X-Frame-Age": str(round(time.time() - taken_at, 2)),
+        },
+    )
 
 
 # ----------------------------------------------------------------- REST path

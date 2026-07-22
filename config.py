@@ -100,5 +100,24 @@ SESSION_SWEEP_SECONDS = _float("SESSION_SWEEP_SECONDS", 30.0)
 # Largest JPEG the server will accept from a client (bytes).
 MAX_FRAME_BYTES = _int("MAX_FRAME_BYTES", 4 * 1024 * 1024)
 
+# ------------------------------------------------------------- remote viewing
+# When on, each camera's latest frame is held in memory so other clients in the
+# SAME session can watch it — this is what makes every location see every
+# camera. Cost is one JPEG (~40 KB) per active camera.
+#
+# PRIVACY: the session id is the only thing protecting these feeds. Anyone who
+# knows it can watch every camera in that session. The client generates a long
+# random id by default; do not replace it with something guessable like "demo"
+# unless you intend the feeds to be public. Set REMOTE_VIEW_ENABLED=0 to turn
+# the feature off entirely and go back to counts-only fusion.
+REMOTE_VIEW_ENABLED = os.environ.get("REMOTE_VIEW_ENABLED", "1") not in (
+    "0",
+    "false",
+    "False",
+)
+
+# A remote feed older than this is shown as stale rather than as live video.
+REMOTE_STALE_SECONDS = _float("REMOTE_STALE_SECONDS", 6.0)
+
 # Warm the models at startup so the first visitor doesn't eat the lazy-load cost.
 WARMUP_ON_START = os.environ.get("WARMUP_ON_START", "1") not in ("0", "false", "False")

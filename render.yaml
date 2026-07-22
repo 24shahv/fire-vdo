@@ -60,6 +60,11 @@ services:
         value: "1"
       - key: SESSION_TTL_SECONDS
         value: "90"
+
+      # Let cameras in the same session watch each other. Set to 0 for
+      # counts-only fusion with no video relay.
+      - key: REMOTE_VIEW_ENABLED
+        value: "1"
       - key: LOG_LEVEL
         value: "INFO"
 

@@ -115,6 +115,9 @@
     camBadge.textContent = `CAM ${camId}`;
     syncUrl();
     updateShareLink();
+    for (const [, t] of tiles) t.root.remove();
+    tiles.clear();
+    pollWallMeta();
     if (running) { closeSocket(); openSocket(); }
   });
 
@@ -673,10 +676,204 @@
     }
   }
 
+  // ── remote camera wall ───────────────────────────────────────────────────
+  /*
+   * Every camera in the session publishes its latest frame to the server, so
+   * each location can watch all the others. Metadata (boxes, counts, staleness)
+   * is polled as JSON; the pictures come from /api/frame as ordinary <img>
+   * loads, which keeps them off the inference WebSocket and lets the browser
+   * manage its own image memory.
+   *
+   * A tile only requests its next frame once the previous one has loaded, so a
+   * slow feed falls behind instead of queueing requests forever.
+   */
+  const tiles = new Map();
+  let wallMetaTimer = null;
+  let wallFrameTimer = null;
+
+  const WALL_META_MS = 1200;
+  const WALL_FRAME_MS = 350;
+  let staleAfter = 6;
+
+  function startWall() {
+    stopWall();
+    pollWallMeta();
+    wallMetaTimer = setInterval(pollWallMeta, WALL_META_MS);
+    wallFrameTimer = setInterval(refreshTileFrames, WALL_FRAME_MS);
+  }
+
+  function stopWall() {
+    if (wallMetaTimer) { clearInterval(wallMetaTimer); wallMetaTimer = null; }
+    if (wallFrameTimer) { clearInterval(wallFrameTimer); wallFrameTimer = null; }
+  }
+
+  async function pollWallMeta() {
+    if (document.hidden) return;
+
+    try {
+      const res = await fetch(
+        `/api/cameras?session=${encodeURIComponent(sessionId)}&exclude=${camId}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+
+      const data = await res.json();
+      staleAfter = data.stale_after || 6;
+      renderWall(data.cameras || [], data.enabled !== false);
+    } catch { /* transient — next tick retries */ }
+  }
+
+  function renderWall(cams, enabled) {
+    const grid = $("wallGrid");
+    const wall = $("wall");
+
+    // Drop tiles for cameras that have gone away.
+    for (const [id, tile] of tiles) {
+      if (!cams.some((c) => c.cam_id === id)) {
+        tile.root.remove();
+        tiles.delete(id);
+      }
+    }
+
+    if (!enabled) {
+      wall.hidden = true;
+      return;
+    }
+
+    $("wallCount").textContent = cams.length;
+
+    if (!cams.length) {
+      // Only advertise the wall once the operator is actually streaming.
+      wall.hidden = !running;
+      if (running && !grid.querySelector(".wall-empty")) {
+        grid.innerHTML =
+          '<p class="wall-empty">No other cameras yet. Open the link below on ' +
+          "another device with a different camera ID and its feed appears here.</p>";
+      }
+      return;
+    }
+
+    wall.hidden = false;
+    const empty = grid.querySelector(".wall-empty");
+    if (empty) empty.remove();
+
+    for (const cam of cams) {
+      let tile = tiles.get(cam.cam_id);
+      if (!tile) {
+        tile = makeTile(cam.cam_id);
+        tiles.set(cam.cam_id, tile);
+        grid.appendChild(tile.root);
+      }
+      updateTile(tile, cam);
+    }
+  }
+
+  function makeTile(id) {
+    const root = document.createElement("div");
+    root.className = "tile";
+    root.dataset.camId = String(id);
+
+    const media = document.createElement("div");
+    media.className = "tile-media";
+
+    const img = document.createElement("img");
+    img.alt = `Camera ${id}`;
+    img.decoding = "async";
+    img.dataset.loading = "0";
+    img.addEventListener("load", () => { img.dataset.loading = "0"; });
+    img.addEventListener("error", () => {
+      img.dataset.loading = "0";
+      const t = tiles.get(id);
+      if (t) t.hasFrame = false;   // camera left mid-request; wait for metadata
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = FRAME_W;
+    canvas.height = FRAME_H;
+
+    media.append(img, canvas);
+
+    const bar = document.createElement("div");
+    bar.innerHTML =
+      `<b>CAM ${id}</b><span class="people">0 people</span>` +
+      '<span class="spacer"></span><span class="flags"></span>';
+    bar.className = "tile-bar";
+
+    root.append(media, bar);
+    root.addEventListener("click", () => {
+      root.dataset.focus = root.dataset.focus === "1" ? "0" : "1";
+    });
+
+    return { root, img, canvas, ctx: canvas.getContext("2d"), bar, hasFrame: false };
+  }
+
+  function updateTile(tile, cam) {
+    const stale = cam.age === null || cam.age > staleAfter;
+
+    tile.root.dataset.fire = cam.fire_detected ? "1" : "0";
+    tile.root.dataset.stale = stale ? "1" : "0";
+
+    tile.bar.querySelector(".people").textContent =
+      `${cam.people} ${cam.people === 1 ? "person" : "people"}`;
+
+    const flags = [];
+    if (cam.fire_detected) flags.push('<span class="tile-flag fire">FIRE</span>');
+    if (cam.smoke) flags.push('<span class="tile-flag smoke">SMOKE</span>');
+    if (stale) flags.push('<span class="tile-flag stale">STALE</span>');
+    tile.bar.querySelector(".flags").innerHTML = flags.join(" ");
+
+    // Only ask for a picture once the server says one exists. Without this the
+    // tile fires requests during the gap between a camera joining and its first
+    // frame landing, and every one comes back 404.
+    tile.hasFrame = cam.has_frame === true;
+
+    drawTileBoxes(tile, cam);
+  }
+
+  function drawTileBoxes(tile, cam) {
+    const ctx = tile.ctx;
+    ctx.clearRect(0, 0, FRAME_W, FRAME_H);
+    ctx.lineWidth = 3;
+    ctx.font = "600 15px 'IBM Plex Mono', monospace";
+
+    ctx.strokeStyle = COLORS.person;
+    for (const p of cam.boxes || []) {
+      const [x1, y1, x2, y2] = p.box;
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    }
+
+    ctx.strokeStyle = COLORS.fire;
+    ctx.fillStyle = COLORS.fire;
+    for (const f of cam.fire || []) {
+      const [x1, y1, x2, y2] = f.box;
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      ctx.fillText(f.label.toUpperCase(), x1 + 3, Math.max(16, y1 - 5));
+    }
+  }
+
+  function refreshTileFrames() {
+    if (document.hidden) return;
+
+    for (const [id, tile] of tiles) {
+      if (!tile.hasFrame) continue;                  // nothing published yet
+      if (tile.img.dataset.loading === "1") continue; // still fetching
+      tile.img.dataset.loading = "1";
+      tile.img.src =
+        `/api/frame?session=${encodeURIComponent(sessionId)}&cam=${id}&t=${Date.now()}`;
+    }
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
   function randomId() {
-    if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-    return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-6);
+    // 32 hex chars. This id is the only thing protecting the session's live
+    // feeds from anyone who guesses it, so it is deliberately not short.
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, "");
+    if (window.crypto && crypto.getRandomValues) {
+      const a = new Uint8Array(16);
+      crypto.getRandomValues(a);
+      return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+    }
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
   }
 
   function syncUrl() {
@@ -707,4 +904,8 @@
         return `Camera failed to start: ${(err && err.message) || "unknown error"}`;
     }
   }
+
+  // Started last: the wall's state lives in `const`s declared above, so this
+  // must run after every declaration in this IIFE has been evaluated.
+  startWall();
 })();

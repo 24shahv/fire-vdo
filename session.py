@@ -44,7 +44,28 @@ class CameraState:
     fire_boxes: list = field(default_factory=list)
     smoke_detected: bool = False
 
+    # Latest JPEG exactly as the browser uploaded it, so other clients in the
+    # same session can watch this feed. Only ONE frame is held per camera —
+    # never a buffer — so memory is O(cameras), not O(frames).
+    last_jpeg: bytes | None = None
+    last_jpeg_at: float = 0.0
+
     last_seen: float = field(default_factory=time.time)
+
+    def summary(self, now: float | None = None) -> dict:
+        """Metadata another viewer needs to render this feed."""
+        now = now or time.time()
+        return {
+            "cam_id": self.cam_id,
+            "people": len(self.people_boxes),
+            "boxes": self.people_boxes,
+            "fire": self.fire_boxes,
+            "fire_detected": bool(self.fire_boxes),
+            "smoke": self.smoke_detected,
+            "seq": self.frame_count,
+            "age": round(now - self.last_jpeg_at, 2) if self.last_jpeg_at else None,
+            "has_frame": self.last_jpeg is not None,
+        }
 
     def should_run_detection(self) -> bool:
         """Reproduces `frame_count % DETECT_STRIDE == 0` from the original."""
@@ -89,7 +110,22 @@ class Session:
         return cam
 
     def drop_camera(self, cam_id: int) -> None:
-        self.cameras.pop(cam_id, None)
+        cam = self.cameras.pop(cam_id, None)
+        if cam is not None:
+            cam.last_jpeg = None  # release the held frame immediately
+
+    def wall(self, exclude: int | None = None) -> list:
+        """Summaries of every camera in this session, newest state first."""
+        now = time.time()
+        return [
+            cam.summary(now)
+            for cid, cam in sorted(self.cameras.items())
+            if cid != exclude
+        ]
+
+    def frame_of(self, cam_id: int):
+        cam = self.cameras.get(cam_id)
+        return (cam.last_jpeg, cam.last_jpeg_at) if cam else (None, 0.0)
 
     def touch(self) -> None:
         self.last_seen = time.time()

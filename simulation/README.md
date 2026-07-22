@@ -1,16 +1,16 @@
 # Desktop simulations (not deployed)
 
-These are the original pygame evacuation simulations from the project:
+The original pygame evacuation simulations, kept for reference and coursework:
 
-- `simulation.py` — 12×12 grid evacuation
-- `hotel_simulation.py` — 18×18 hotel floor with A* routing
+- `simulation.py` — 12x12 grid evacuation
+- `hotel_simulation.py` — 18x18 hotel floor with A* routing
 - `simulatio/` — layout + A* engine + runner
 
-They are kept for reference and coursework. **The web service never imports
-them**, and `pygame` is deliberately absent from `requirements.txt` — these
-open a desktop window, which a Render container has no display for.
+The web service never imports these, and `pygame` is deliberately absent from
+`requirements.txt` — they open a desktop window, which a Render container has
+no display for.
 
-To run one locally:
+Run one locally:
 
 ```bash
 pip install pygame

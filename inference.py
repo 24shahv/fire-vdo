@@ -177,6 +177,13 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
         cam.fire_boxes = fire_boxes
         cam.smoke_detected = smoke_detected
 
+        # Publish this frame for the other viewers in the session. The old
+        # bytes are dropped on reassignment, so exactly one frame per camera is
+        # ever resident.
+        if config.REMOTE_VIEW_ENABLED:
+            cam.last_jpeg = payload
+            cam.last_jpeg_at = time.time()
+
         global_people = []
         global_fire_positions = []
         fire_detected_global = False

@@ -158,10 +158,11 @@ the `weights_only` default that Ultralytics relies on.
 
 ---
 
-## Multiple cameras
+## Multiple cameras — every location sees every camera
 
 The original fused two local webcams via `CAMERA_SOURCES = [0, 1]`. That still
-works, but the cameras are now *browsers*.
+works, but the cameras are now *browsers*, and each one can watch all the
+others.
 
 Open the site, then use the **Add another camera** link on a phone. Same
 `session` parameter, different `cam` id:
@@ -175,6 +176,35 @@ Both feeds merge into one building view: people are counted across cameras,
 `remove_duplicate_people()` collapses overlaps, and both cameras receive the
 same exit decision.
 
+**Both locations also see each other's video.** Under the live feed, an *Other
+feeds* wall shows every other camera in the session with its own detection
+boxes, people count, and FIRE / SMOKE flags. Click a tile to enlarge it.
+
+How it works: each camera's most recent frame is kept in memory server-side and
+served from `GET /api/frame`. Viewers poll `GET /api/cameras` for metadata
+(~1.2 s) and pull the pictures as ordinary `<img>` loads (~3 fps). Keeping the
+pictures off the inference WebSocket means a slow remote feed can never delay
+your own detections. Exactly **one** frame is held per camera — never a buffer
+— so the cost is about 40 KB per active camera.
+
+You do not need to start your own camera to watch. Open a shared session link
+and the wall populates on its own, which makes a laptop usable as a pure
+monitoring station.
+
+> **Privacy — read this before sharing a link.** The session id is the *only*
+> thing protecting these feeds. Anyone who has it can watch every camera in
+> that session. The client generates a 32-character random id; do not replace
+> it with something guessable like `?session=demo` unless you mean the feeds to
+> be public. To disable remote viewing entirely and go back to counts-only
+> fusion, set `REMOTE_VIEW_ENABLED=0`.
+
+Frames expire with the session (`SESSION_TTL_SECONDS`, default 90 s) and are
+released the moment a camera disconnects. Nothing is written to disk.
+
+Known cosmetic detail: when a camera disconnects, viewers may log a single
+`404` for that camera's frame — a request already in flight when the feed went
+away. The client stops asking after it. It is one request per disconnect.
+
 ---
 
 ## Endpoints
@@ -186,6 +216,8 @@ same exit decision.
 | `POST /api/detect` | Single frame — multipart, base64 JSON, or raw body |
 | `GET /healthz` | Uptime and live session counts |
 | `GET /api/config` | Frame size, grid, exits |
+| `GET /api/cameras?session=&exclude=` | Every camera in a session + its detections |
+| `GET /api/frame?session=&cam=` | Latest JPEG from one camera |
 
 The WebSocket is strictly request/response: the client only grabs the next
 frame after the previous verdict lands. That one rule is what keeps latency
@@ -208,6 +240,8 @@ Everything is environment-driven — no code edits needed.
 | `ALERT_COOLDOWN` | 5.0 | Seconds between spoken alerts |
 | `MAX_CONCURRENT_INFERENCE` | 2 | Frames allowed inside the models at once |
 | `SESSION_TTL_SECONDS` | 90 | Idle session expiry |
+| `REMOTE_VIEW_ENABLED` | 1 | Let session members watch each other's feeds |
+| `REMOTE_STALE_SECONDS` | 6 | Remote feed older than this is shown as stale |
 
 Raising `DETECT_STRIDE` is the cheapest way to serve more simultaneous
 visitors; people positions simply update less often.
@@ -234,6 +268,3 @@ python server.py          # http://localhost:8000
 - Memory flat across 300 frames (823 → 827 MB, growth rate decreasing)
 - Session sweeper reclaims idle state: 14 sessions → 2 after TTL
 - Fire detected in 12/25 validation images at the default threshold
-#   f i r e - v d o  
- #   f i r e - v d o  
- 
