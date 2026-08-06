@@ -43,35 +43,6 @@
   </span>
 </section>
 
-<!-- Hazard severity: one number an operator can act on under stress -->
-<section class="severity" id="severity" data-level="NOMINAL" aria-live="polite">
-  <div class="sev-head">
-    <span class="sev-label">HAZARD SEVERITY</span>
-    <span class="sev-level" id="sevLevel">NOMINAL</span>
-  </div>
-
-  <div class="sev-main">
-    <span class="sev-score" id="sevScore">0</span>
-    <div class="sev-track" aria-hidden="true">
-      <div class="sev-fill" id="sevFill"></div>
-      <span class="sev-tick" style="left:25%"></span>
-      <span class="sev-tick" style="left:50%"></span>
-      <span class="sev-tick" style="left:75%"></span>
-    </div>
-  </div>
-
-  <!-- Why the number is what it is. An unexplained score is not actionable. -->
-  <div class="sev-parts" id="sevParts">
-    <span data-k="fire">Fire <b>0</b></span>
-    <span data-k="extent">Extent <b>0</b></span>
-    <span data-k="smoke">Smoke <b>0</b></span>
-    <span data-k="occupancy">People <b>0</b></span>
-    <span data-k="egress">Egress <b>0</b></span>
-  </div>
-
-  <p class="sev-note" id="sevNote" hidden></p>
-</section>
-
 <main class="console">
 
   <!-- ─────────────────────────── live feed ─────────────────────────── -->

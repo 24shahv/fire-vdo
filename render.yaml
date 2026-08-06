@@ -28,14 +28,6 @@ services:
     healthCheckPath: /healthz
 
     envVars:
-      # ── SPEED ────────────────────────────────────────────────────────────
-      # Set to "1" for the low-latency profile: smaller letterboxes, single
-      # confirmation frame, people detection every frame. Roughly 3x faster to
-      # first detection, at some cost in detection quality on hard frames.
-      # The skin veto and FIRE_STRONG_CONF are NOT relaxed by this.
-      - key: FAST_MODE
-        value: "1"
-
       - key: PYTHON_VERSION
         value: "3.11.9"
 
@@ -68,44 +60,6 @@ services:
         value: "1"
       - key: SESSION_TTL_SECONDS
         value: "90"
-
-      # ── Detection reliability ────────────────────────────────────────────
-      # Declared here (not just defaulted in config.py) so they can be edited
-      # from the Render dashboard and applied with a restart — no redeploy.
-      #
-      # Live tuning, in order of usefulness:
-      #   fire not detecting  -> FIRE_COLOUR_STANDALONE_RATIO   0.018 -> 0.012
-      #                       -> FIRE_COLOUR_STANDALONE_FLICKER 0.28  -> 0.20
-      #   false alarms        -> FIRE_CONFIRM_FRAMES            2     -> 3
-      #   badge flickering    -> FIRE_HOLD_FRAMES               12    -> 18
-      #   full rollback       -> FIRE_FUSION_ENABLED=0, FIRE_CONFIRM_FRAMES=1,
-      #                          FIRE_HOLD_FRAMES=0
-      - key: FIRE_FUSION_ENABLED
-        value: "1"
-      - key: FIRE_STRONG_CONF
-        value: "0.72"
-      - key: FIRE_SKIN_VETO_RATIO
-        value: "0.22"
-      - key: FIRE_SKIN_VETO_FLICKER
-        value: "0.30"
-      - key: FIRE_COLOUR_OVERWHELMING_RATIO
-        value: "0.09"
-      - key: FIRE_COLOUR_OVERWHELMING_FLICKER
-        value: "0.08"
-      - key: FIRE_COLOUR_STANDALONE_RATIO
-        value: "0.015"
-      - key: FIRE_COLOUR_STANDALONE_FLICKER
-        value: "0.25"
-      - key: FIRE_CONFIRM_FRAMES
-        value: "2"
-      - key: FIRE_HOLD_FRAMES
-        value: "12"
-      - key: SMOKE_CONFIRM_FRAMES
-        value: "3"
-      - key: SMOKE_HOLD_FRAMES
-        value: "10"
-      - key: BOX_SMOOTHING_ALPHA
-        value: "0.45"
 
       # Let cameras in the same session watch each other. Set to 0 for
       # counts-only fusion with no video relay.

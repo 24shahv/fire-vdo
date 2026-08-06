@@ -38,31 +38,6 @@ WALL_ROW = _int("WALL_ROW", 5)
 WALL_COL_START = _int("WALL_COL_START", 3)
 WALL_COL_END = _int("WALL_COL_END", 7)  # exclusive
 
-# --------------------------------------------------------------- speed profile
-#
-# FAST_MODE=1 trades detection quality for latency. It exists because on a
-# throttled instance the two YOLO forward passes dominate everything else, and
-# a demo that answers late is worse than a demo that answers roughly.
-#
-# It changes four things, in order of how much time each returns:
-#
-#   1. Smaller letterboxes. Inference cost scales with the square of the input
-#      size, so 416 -> 288 is roughly half the fire cost. This is by far the
-#      largest single saving.
-#   2. Confirmation drops to a single frame. Temporal confirmation is what makes
-#      the alarm steady, but every confirmation frame is one whole round trip of
-#      added latency — at 1 fps that is a second per frame, spent waiting.
-#   3. People detection runs on every frame instead of every second frame. This
-#      costs more CPU per frame but halves the time before a person appears,
-#      which is the number actually being complained about.
-#   4. Classical fusion runs on a smaller copy. Small saving, no quality cost.
-#
-# What is deliberately NOT changed: the skin veto and FIRE_STRONG_CONF stay
-# exactly where they are. Speed is worth accuracy; it is not worth putting FIRE
-# on a judge's face.
-FAST_MODE = os.environ.get("FAST_MODE", "0").strip().lower() in ("1", "true", "yes", "on")
-
-
 # ------------------------------------------------------------------- pipeline
 # The frame size the browser uploads and that every pixel coordinate refers to.
 FRAME_WIDTH = _int("FRAME_WIDTH", 640)
@@ -76,102 +51,21 @@ PEOPLE_INPUT_HEIGHT = _int("PEOPLE_INPUT_HEIGHT", 168)
 # YOLO letterbox sizes. Benchmarked on a 1-vCPU box:
 #   fire  @416 ~55 ms   (vs ~127 ms @640)
 #   people@320 ~43 ms
-# Under FAST_MODE these drop to 288 / 224, roughly halving both.
-FIRE_IMGSZ = _int("FIRE_IMGSZ", 288 if FAST_MODE else 416)
-PEOPLE_IMGSZ = _int("PEOPLE_IMGSZ", 224 if FAST_MODE else 320)
+FIRE_IMGSZ = _int("FIRE_IMGSZ", 416)
+PEOPLE_IMGSZ = _int("PEOPLE_IMGSZ", 320)
 
 FIRE_CONF = _float("FIRE_CONF", 0.25)
 PEOPLE_CONF = _float("PEOPLE_CONF", 0.30)
 
 # Run people detection every Nth frame and reuse the cached result in between
 # (this is the `frame_count % 2 == 0` trick from the original main.py).
-# FAST_MODE runs it every frame: more CPU per frame, but half the wait.
-DETECT_STRIDE = _int("DETECT_STRIDE", 1 if FAST_MODE else 2)
+DETECT_STRIDE = _int("DETECT_STRIDE", 2)
 
 # How many frames a stale people-detection result stays alive.
 PEOPLE_MEMORY_FRAMES = _int("PEOPLE_MEMORY_FRAMES", 5)
 
-# Classical fusion runs on a copy no wider than this. Mask ratios are
-# scale-invariant, so this costs nothing in quality: measured on a real fire
-# frame, the ratio moves from 0.1841 at 640 wide to 0.1843 at 320 wide.
-COLOUR_EVIDENCE_MAX_WIDTH = _int("COLOUR_EVIDENCE_MAX_WIDTH", 240 if FAST_MODE else 320)
-
 # Smoke threshold — tuned for a 640x480 frame, so it moves with the frame area.
 SMOKE_PIXEL_THRESHOLD = _int("SMOKE_PIXEL_THRESHOLD", 35000)
-
-# ------------------------------------------------------- classical fire fusion
-# The network is trained on 712 images and misses frames the corpus does not
-# represent. These control the classical colour+flicker channel that runs
-# alongside it. See fire_fusion.py for why colour alone is not sufficient.
-FIRE_FUSION_ENABLED = os.environ.get("FIRE_FUSION_ENABLED", "1") not in (
-    "0", "false", "False",
-)
-
-# A network hit at or above this confidence is accepted on its own. This bar is
-# deliberately high: the model produced a 0.47 false positive on a human face in
-# warm indoor light, so anything in the middle of the range must be corroborated
-# by physical evidence before it is allowed to raise an alarm.
-FIRE_STRONG_CONF = _float("FIRE_STRONG_CONF", 0.72)
-
-# Retained for compatibility and for anyone tuning the old way. No longer used
-# as a bypass — see FIRE_STRONG_CONF above.
-FIRE_WEAK_CONF = _float("FIRE_WEAK_CONF", 0.45)
-
-# Skin veto. A detection whose box is at least this skin-coloured, in a scene
-# that is not changing shape, is treated as a face rather than a flame.
-FIRE_SKIN_VETO_RATIO = _float("FIRE_SKIN_VETO_RATIO", 0.22)
-FIRE_SKIN_VETO_FLICKER = _float("FIRE_SKIN_VETO_FLICKER", 0.30)
-
-# Fraction of the frame that must be fire-coloured to corroborate a weak hit.
-FIRE_COLOUR_MIN_RATIO = _float("FIRE_COLOUR_MIN_RATIO", 0.004)
-
-# Fire colour ratio at which the colour term is considered fully saturated.
-FIRE_COLOUR_FULL_RATIO = _float("FIRE_COLOUR_FULL_RATIO", 0.06)
-
-# A contiguous region must cover at least this share of the frame to count.
-FIRE_COLOUR_MIN_BLOB_RATIO = _float("FIRE_COLOUR_MIN_BLOB_RATIO", 0.0012)
-
-# Standalone classical detection — the path that catches frames the network
-# misses entirely. Flicker is mandatory and now measures shape change rather
-# than area variance, so a screen playing fire footage qualifies.
-FIRE_COLOUR_STANDALONE_RATIO = _float("FIRE_COLOUR_STANDALONE_RATIO", 0.015)
-FIRE_COLOUR_STANDALONE_FLICKER = _float("FIRE_COLOUR_STANDALONE_FLICKER", 0.25)
-
-# Overwhelming-evidence tier. When this much of the frame is fire-coloured
-# (after skin removal) the flicker bar drops, because waiting for the flicker
-# window to fill can take several seconds at a low frame rate — and a frame this
-# saturated should not be silent while that happens.
-#
-# 0.09 is roughly six times the normal gate. Measured for reference: a face in
-# warm light with a timber door in shot reaches 0.005 after skin removal; a
-# phone screen playing fire footage reaches 0.184. The margin between those two
-# is what makes this tier safe.
-FIRE_COLOUR_OVERWHELMING_RATIO = _float("FIRE_COLOUR_OVERWHELMING_RATIO", 0.09)
-FIRE_COLOUR_OVERWHELMING_FLICKER = _float("FIRE_COLOUR_OVERWHELMING_FLICKER", 0.08)
-
-# How many recent frames feed the flicker measurement. Kept short because the
-# service can drop to ~1 fps on a cold free-tier instance, and a long window
-# would then take ten seconds to fill before fire could ever be raised.
-FIRE_COLOUR_HISTORY = _int("FIRE_COLOUR_HISTORY", 6)
-
-# ------------------------------------------------- temporal confirmation
-# Frames of evidence required before an alarm raises, and frames it holds after
-# evidence stops. Raising is cautious; clearing is slow. See hazard_state.py.
-FIRE_CONFIRM_FRAMES = _int("FIRE_CONFIRM_FRAMES", 1 if FAST_MODE else 2)
-FIRE_HOLD_FRAMES = _int("FIRE_HOLD_FRAMES", 8 if FAST_MODE else 12)
-SMOKE_CONFIRM_FRAMES = _int("SMOKE_CONFIRM_FRAMES", 1 if FAST_MODE else 3)
-SMOKE_HOLD_FRAMES = _int("SMOKE_HOLD_FRAMES", 6 if FAST_MODE else 8)
-
-# ------------------------------------------------------------ overlay polish
-# Ease detection boxes between frames so the overlay tracks instead of jitters.
-BOX_SMOOTHING = os.environ.get("BOX_SMOOTHING", "1") not in ("0", "false", "False")
-BOX_SMOOTHING_ALPHA = _float("BOX_SMOOTHING_ALPHA", 0.45)
-
-# ---------------------------------------------------------- severity scoring
-# Fire area ratio at which the extent term saturates.
-SEVERITY_FULL_FIRE_RATIO = _float("SEVERITY_FULL_FIRE_RATIO", 0.08)
-# Occupancy at which the people-at-risk term saturates.
-SEVERITY_FULL_OCCUPANCY = _int("SEVERITY_FULL_OCCUPANCY", 8)
 
 # Merge two detections into one person when their centres are closer than this.
 DUPLICATE_DISTANCE = _int("DUPLICATE_DISTANCE", 50)
