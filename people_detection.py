@@ -22,6 +22,21 @@ MIN_AREA = 2000
 MIN_ASPECT = 0.8
 MAX_ASPECT = 3.5
 
+# Close-up exemption.
+#
+# MIN_ASPECT assumes a person seen at a distance, standing, whole body in frame.
+# That is the plant-floor case and it is right there. It is wrong for the case
+# that actually happens on a laptop: someone sitting a metre from the lens, head
+# and shoulders filling the shot. That box is wider than it is tall — aspect
+# around 0.5 — and the standard filter throws it away, so the occupancy count
+# reads zero with a person plainly on screen.
+#
+# A detection that occupies this much of the frame is too large to be hanging
+# clothing or a door frame, so the aspect floor is relaxed for it. Everything
+# else — the class check, the confidence floor, the edge margin — still applies.
+CLOSEUP_AREA_RATIO = 0.10
+CLOSEUP_MIN_ASPECT = 0.45
+
 # Ignore detections hugging the frame edge (hanging clothes, door frames...).
 EDGE_MARGIN = 0.1
 
@@ -74,9 +89,13 @@ def detect_people(frame):
             if area < MIN_AREA:
                 continue
 
-            # 3. aspect ratio
+            # 3. aspect ratio — relaxed for a close-up, which is wider than tall
             aspect_ratio = height / max(width, 1)
-            if aspect_ratio < MIN_ASPECT or aspect_ratio > MAX_ASPECT:
+            frame_area = max(1, h_frame * w_frame)
+            is_closeup = (area / frame_area) >= CLOSEUP_AREA_RATIO
+            min_aspect = CLOSEUP_MIN_ASPECT if is_closeup else MIN_ASPECT
+
+            if aspect_ratio < min_aspect or aspect_ratio > MAX_ASPECT:
                 continue
 
             # 4. drop edge junk

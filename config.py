@@ -75,9 +75,20 @@ FIRE_FUSION_ENABLED = os.environ.get("FIRE_FUSION_ENABLED", "1") not in (
     "0", "false", "False",
 )
 
-# Below this network confidence a detection is treated as weak and needs
-# classical corroboration before it counts.
+# A network hit at or above this confidence is accepted on its own. This bar is
+# deliberately high: the model produced a 0.47 false positive on a human face in
+# warm indoor light, so anything in the middle of the range must be corroborated
+# by physical evidence before it is allowed to raise an alarm.
+FIRE_STRONG_CONF = _float("FIRE_STRONG_CONF", 0.72)
+
+# Retained for compatibility and for anyone tuning the old way. No longer used
+# as a bypass — see FIRE_STRONG_CONF above.
 FIRE_WEAK_CONF = _float("FIRE_WEAK_CONF", 0.45)
+
+# Skin veto. A detection whose box is at least this skin-coloured, in a scene
+# that is not changing shape, is treated as a face rather than a flame.
+FIRE_SKIN_VETO_RATIO = _float("FIRE_SKIN_VETO_RATIO", 0.22)
+FIRE_SKIN_VETO_FLICKER = _float("FIRE_SKIN_VETO_FLICKER", 0.30)
 
 # Fraction of the frame that must be fire-coloured to corroborate a weak hit.
 FIRE_COLOUR_MIN_RATIO = _float("FIRE_COLOUR_MIN_RATIO", 0.004)
@@ -89,12 +100,27 @@ FIRE_COLOUR_FULL_RATIO = _float("FIRE_COLOUR_FULL_RATIO", 0.06)
 FIRE_COLOUR_MIN_BLOB_RATIO = _float("FIRE_COLOUR_MIN_BLOB_RATIO", 0.0012)
 
 # Standalone classical detection — the path that catches frames the network
-# misses entirely. Deliberately much stricter, and flicker is mandatory.
-FIRE_COLOUR_STANDALONE_RATIO = _float("FIRE_COLOUR_STANDALONE_RATIO", 0.018)
-FIRE_COLOUR_STANDALONE_FLICKER = _float("FIRE_COLOUR_STANDALONE_FLICKER", 0.28)
+# misses entirely. Flicker is mandatory and now measures shape change rather
+# than area variance, so a screen playing fire footage qualifies.
+FIRE_COLOUR_STANDALONE_RATIO = _float("FIRE_COLOUR_STANDALONE_RATIO", 0.015)
+FIRE_COLOUR_STANDALONE_FLICKER = _float("FIRE_COLOUR_STANDALONE_FLICKER", 0.25)
 
-# How many recent frames feed the flicker measurement.
-FIRE_COLOUR_HISTORY = _int("FIRE_COLOUR_HISTORY", 12)
+# Overwhelming-evidence tier. When this much of the frame is fire-coloured
+# (after skin removal) the flicker bar drops, because waiting for the flicker
+# window to fill can take several seconds at a low frame rate — and a frame this
+# saturated should not be silent while that happens.
+#
+# 0.09 is roughly six times the normal gate. Measured for reference: a face in
+# warm light with a timber door in shot reaches 0.005 after skin removal; a
+# phone screen playing fire footage reaches 0.184. The margin between those two
+# is what makes this tier safe.
+FIRE_COLOUR_OVERWHELMING_RATIO = _float("FIRE_COLOUR_OVERWHELMING_RATIO", 0.09)
+FIRE_COLOUR_OVERWHELMING_FLICKER = _float("FIRE_COLOUR_OVERWHELMING_FLICKER", 0.08)
+
+# How many recent frames feed the flicker measurement. Kept short because the
+# service can drop to ~1 fps on a cold free-tier instance, and a long window
+# would then take ten seconds to fill before fire could ever be raised.
+FIRE_COLOUR_HISTORY = _int("FIRE_COLOUR_HISTORY", 6)
 
 # ------------------------------------------------- temporal confirmation
 # Frames of evidence required before an alarm raises, and frames it holds after

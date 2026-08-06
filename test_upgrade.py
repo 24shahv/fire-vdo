@@ -73,19 +73,45 @@ check("white lamp alone does not corroborate", not fire_fusion.is_corroborating(
 
 print("\n─── 2. Flicker discrimination ───")
 
-# Static orange object: constant area across frames.
-static_hist = [0.030] * 12
+# Flicker now measures how the fire region changes SHAPE between frames, not
+# how its total area varies. The old scalar-ratio history is therefore no longer
+# a valid input — a fire video holds near-constant area while churning wildly,
+# which is precisely the case the area metric missed.
+
+
+def sig_history(make_frame, n=6):
+    """Build signature history the way the running service does."""
+    hist = []
+    for i in range(n):
+        ev = fire_fusion.colour_evidence(make_frame(i), hist)
+        hist.append(ev["signature"])
+    return hist
+
+
+# Static orange object: identical every frame, so its outline never changes.
+static_hist = sig_history(lambda i: flame(blank(), 320, 240, 70, 100))
 static_ev = fire_fusion.colour_evidence(flame(blank(), 320, 240, 70, 100), static_hist)
 check("static object scores low flicker", static_ev["flicker"] < 0.25,
       f"flicker={static_ev['flicker']}")
 check("static object rejected as standalone", not fire_fusion.is_standalone(static_ev),
       "colour alone must not raise fire")
 
-# Real flame: area wanders frame to frame.
-rng = np.random.default_rng(7)
-live_hist = list(0.030 + rng.normal(0, 0.011, 12))
-live_ev = fire_fusion.colour_evidence(flame(blank(), 320, 240, 70, 100), live_hist)
-check("flickering flame scores high flicker", live_ev["flicker"] >= 0.28,
+# Real flame: the region rewrites its own outline frame to frame.
+_rng = np.random.default_rng(7)
+
+
+def _wander(i):
+    f = blank()
+    for k in range(9):
+        cx = 200 + ((k * 47 + i * 31) % 240)
+        cy = 240 + int(_rng.integers(-30, 30))
+        flame(f, cx, cy, int(_rng.integers(22, 46)), int(_rng.integers(60, 120)))
+    return f
+
+
+live_hist = sig_history(_wander)
+live_ev = fire_fusion.colour_evidence(_wander(6), live_hist)
+check("flickering flame scores high flicker", live_ev["flicker"] >= 0.25,
       f"flicker={live_ev['flicker']}")
 check("flickering flame accepted as standalone", fire_fusion.is_standalone(live_ev),
       "this is the path that covers network misses")

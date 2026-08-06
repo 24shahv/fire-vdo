@@ -107,3 +107,64 @@ Everything is environment-driven; no code edit needed.
 **Rollback:** set `FIRE_FUSION_ENABLED=0` and `FIRE_CONFIRM_FRAMES=1`,
 `FIRE_HOLD_FRAMES=0`. Behaviour returns to the previous build with no code
 change.
+
+---
+
+# Hotfix — rehearsal failures
+
+Two failures on stage rehearsal, both caused by the section above, both fixed.
+
+## What happened
+
+| Observed | Cause |
+|---|---|
+| A face read as **FIRE 47%** | A network hit at or above `FIRE_WEAK_CONF` (0.45) bypassed corroboration entirely. 0.47 cleared it. Lit skin also sits inside the fire hue band, so the colour channel could not have objected anyway. |
+| Fire on a phone screen **not detected** | Flicker measured the variance of the fire-coloured *area*. A full-screen fire video holds a near-constant area while the flames churn, so it scored ~0 and the standalone path never opened. Measured: cv = 0.074 against a 0.25 bar. |
+
+## Fixes
+
+**1. Skin is now removed from the fire mask.** HSV hue cannot separate skin from
+flame — both sit at 5-25. YCrCb can, because skin occupies a tight chroma
+cluster that combustion does not. A face now contributes a fire ratio of
+**0.0000** where it previously contributed a large region.
+
+**2. The hot core must sit inside the flame, not beside it.** The previous
+version dilated the colour mask and accepted any bright desaturated pixel that
+landed nearby — which reached the white wall behind a warm-lit face. The mask is
+now eroded first, so the core has to be genuinely surrounded by flame colour.
+
+**3. Flicker measures shape change, not area change.** Consecutive fire masks are
+downscaled to a 32x24 binary signature and compared. A flame rewrites roughly a
+third of its own outline every frame; a face or a traffic cone rewrites none.
+This is what makes screen fire detectable and a static orange object still
+rejected — the two cases the area metric got backwards.
+
+**4. The bypass threshold moved from 0.45 to `FIRE_STRONG_CONF` 0.72**, and a
+skin veto now runs *before* confidence is consulted. A box that is ≥22% skin in a
+scene that is not churning is dropped whatever the network claims. The flicker
+condition is what keeps a bystander standing in front of a real fire safe.
+
+## Verification
+
+```
+test_regression.py   15/15   the two stage failures, reproduced then fixed
+test_upgrade.py      31/31
+test_pipeline.py     24/24
+```
+
+`test_regression.py` asserts the old metric would have missed the fire
+(cv = 0.074), so the regression cannot silently return.
+
+## Live tuning
+
+| Symptom | Change |
+|---|---|
+| Fire still not detecting | `FIRE_COLOUR_STANDALONE_RATIO` 0.015 → 0.010 |
+| | `FIRE_COLOUR_STANDALONE_FLICKER` 0.25 → 0.18 |
+| Face still reading as fire | `FIRE_STRONG_CONF` 0.72 → 0.80 |
+| | `FIRE_SKIN_VETO_RATIO` 0.22 → 0.15 |
+| Alarm flickering | `FIRE_HOLD_FRAMES` 12 → 18 |
+
+**Rollback:** `FIRE_FUSION_ENABLED=0`, `FIRE_CONFIRM_FRAMES=1`, `FIRE_HOLD_FRAMES=0`.
+Note this also removes the skin veto — the face false positive is a property of
+`best.pt` itself, and the veto is the only thing suppressing it.

@@ -74,12 +74,20 @@ services:
       #                          FIRE_HOLD_FRAMES=0
       - key: FIRE_FUSION_ENABLED
         value: "1"
-      - key: FIRE_WEAK_CONF
-        value: "0.45"
+      - key: FIRE_STRONG_CONF
+        value: "0.72"
+      - key: FIRE_SKIN_VETO_RATIO
+        value: "0.22"
+      - key: FIRE_SKIN_VETO_FLICKER
+        value: "0.30"
+      - key: FIRE_COLOUR_OVERWHELMING_RATIO
+        value: "0.09"
+      - key: FIRE_COLOUR_OVERWHELMING_FLICKER
+        value: "0.08"
       - key: FIRE_COLOUR_STANDALONE_RATIO
-        value: "0.018"
+        value: "0.015"
       - key: FIRE_COLOUR_STANDALONE_FLICKER
-        value: "0.28"
+        value: "0.25"
       - key: FIRE_CONFIRM_FRAMES
         value: "2"
       - key: FIRE_HOLD_FRAMES

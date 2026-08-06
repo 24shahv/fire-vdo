@@ -123,13 +123,17 @@ class CameraHazard:
         self.smoke = HazardTracker(
             config.SMOKE_CONFIRM_FRAMES, config.SMOKE_HOLD_FRAMES
         )
-        # Recent fire-colour ratios, for the flicker measurement.
+        # Recent fire-mask signatures, for the flicker measurement. These are
+        # small binary grids rather than scalars, because flicker now measures
+        # how the region changes SHAPE — a fire video holds a near-constant area
+        # while churning constantly, and a scalar ratio cannot see that.
         self.colour_history = deque(maxlen=config.FIRE_COLOUR_HISTORY)
         # Smoothed detection boxes, keyed by a coarse position bucket.
         self._smoothed = {}
 
-    def push_colour(self, ratio: float) -> None:
-        self.colour_history.append(float(ratio))
+    def push_colour(self, signature) -> None:
+        if signature is not None:
+            self.colour_history.append(signature)
 
     def smooth_boxes(self, boxes):
         """

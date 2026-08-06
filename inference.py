@@ -131,7 +131,7 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
     # several after evidence stops. Everything downstream uses the confirmed
     # value so the directive cannot flicker frame to frame.
     with session.lock:
-        cam.hazard.push_colour(evidence["ratio"])
+        cam.hazard.push_colour(evidence.get("signature"))
         fire_detected = cam.hazard.fire.update(fire_raw)
         smoke_detected = cam.hazard.smoke.update(smoke_raw)
         fire_state = cam.hazard.fire.state()
@@ -312,7 +312,7 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
         },
         "severity": severity,
         "hazard_state": {"fire": fire_state, "smoke": smoke_state},
-        "evidence": evidence,
+        "evidence": {k: v for k, v in evidence.items() if k != "signature"},
         "smoke": {
             "detected": smoke_detected,
             "pixels": smoke_pixels,

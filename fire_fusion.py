@@ -39,49 +39,112 @@ _HIGH_HUE = ((162, 95, 165), (179, 255, 255))   # deep red on the far side
 # pixels — see below.
 _CORE = ((0, 0, 242), (179, 70, 255))
 
+# ------------------------------------------------------------------ skin bands
+# Skin and flame overlap badly in HSV hue: lit skin sits at hue 5-25, which is
+# squarely inside the fire band above. Hue alone therefore cannot separate a
+# face from a flame, and on a warm indoor white-balance it will not even try.
+#
+# YCrCb does separate them. Skin occupies a tight, well-documented chroma
+# cluster; flame sits outside it because combustion pushes Cr far higher and
+# drives luma to the top of the range.
+_SKIN_YCRCB = ((0, 133, 77), (255, 173, 127))
+
+# A flame nearly always carries a small near-white core inside the coloured
+# region. Skin never does. This is the second, independent separator.
+_CORE_INSIDE_EROSION = 3
+
 _KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
 
-def _fire_mask(hsv):
+def _skin_mask(frame):
+    """Binary mask of skin-coloured pixels, from BGR."""
+    ycrcb = cv2.cvtColor(frame, cv2.COLOR_BGR2YCrCb)
+    mask = cv2.inRange(ycrcb, _SKIN_YCRCB[0], _SKIN_YCRCB[1])
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, _KERNEL)
+
+
+def skin_fraction(frame) -> float:
+    """Share of the frame (or crop) that is skin-coloured, 0..1."""
+    if frame is None or frame.size == 0:
+        return 0.0
+    h, w = frame.shape[:2]
+    return float(cv2.countNonZero(_skin_mask(frame))) / max(1, h * w)
+
+
+def _fire_mask(hsv, bgr=None):
     """Binary mask of fire-coloured pixels, morphologically cleaned."""
     mask = cv2.bitwise_or(
         cv2.inRange(hsv, _LOW_HUE[0], _LOW_HUE[1]),
         cv2.inRange(hsv, _HIGH_HUE[0], _HIGH_HUE[1]),
     )
 
-    # A hot core only counts as fire when it is adjacent to fire colour,
-    # which is what stops ceiling lights and windows registering.
+    # A hot core only counts as fire when it sits INSIDE the coloured region.
+    # The previous version accepted a core merely adjacent to fire colour, which
+    # let a white wall behind a warm-lit face qualify — the wall is bright and
+    # desaturated, and dilation reached it. Eroding the colour mask first means
+    # the core has to be genuinely surrounded by flame colour.
     core = cv2.inRange(hsv, _CORE[0], _CORE[1])
-    near_fire = cv2.dilate(mask, _KERNEL, iterations=2)
-    mask = cv2.bitwise_or(mask, cv2.bitwise_and(core, near_fire))
+    interior = cv2.erode(mask, _KERNEL, iterations=_CORE_INSIDE_EROSION)
+    mask = cv2.bitwise_or(mask, cv2.bitwise_and(core, interior))
+
+    # Remove skin. Lit skin is inside the fire hue band, so without this a face
+    # in warm light is indistinguishable from flame on colour alone.
+    if bgr is not None:
+        mask = cv2.bitwise_and(mask, cv2.bitwise_not(_skin_mask(bgr)))
 
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, _KERNEL)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, _KERNEL)
     return mask
 
 
+def mask_signature(mask):
+    """
+    Downscale a fire mask to a small binary grid for temporal comparison.
+
+    Kept tiny (32x24 = 768 bits) because a deque of these lives per camera and
+    the whole point is that history is cheap.
+    """
+    small = cv2.resize(mask, (32, 24), interpolation=cv2.INTER_AREA)
+    return (small > 96).astype(np.uint8)
+
+
 def _flicker_score(history) -> float:
     """
-    How much the fire-coloured area is moving, 0..1.
+    How much the fire region is *changing shape*, 0..1.
 
-    Uses the coefficient of variation of recent mask ratios. A real flame is
-    turbulent, so its area wanders; a static orange object holds a near-constant
-    ratio and scores close to zero. Returning 0 when there is not enough history
-    means a brand-new detection leans on the network until evidence accumulates.
+    This used to measure the variance of the fire-coloured AREA. That was wrong,
+    and it is exactly why a phone screen playing fire footage scored zero: the
+    flames churn violently but the total lit area barely moves, so the variance
+    stayed flat and the standalone path never fired.
+
+    What actually separates flame from a fire-coloured object is that the region
+    changes SHAPE. Comparing consecutive mask signatures catches that — a flame
+    rewrites its own outline every frame, a face or a traffic cone does not.
+
+    Returns 0 when there is too little history, so a brand-new detection leans on
+    the network until evidence accumulates.
     """
-    if len(history) < 4:
+    sigs = [h for h in history if h is not None and not np.isscalar(h)]
+
+    if len(sigs) < 3:
         return 0.0
 
-    arr = np.asarray(history, dtype=np.float32)
-    mean = float(arr.mean())
+    changes = []
+    for a, b in zip(sigs, sigs[1:]):
+        if a.shape != b.shape:
+            continue
+        union = int(np.count_nonzero(a | b))
+        if union < 6:                       # nothing meaningful lit in either
+            continue
+        changed = int(np.count_nonzero(a ^ b))
+        changes.append(changed / union)
 
-    if mean <= 1e-6:
+    if not changes:
         return 0.0
 
-    cv_ = float(arr.std() / mean)
-
-    # cv ~0.08 is a lively flame; anything above 0.25 is saturated for scoring.
-    return float(min(1.0, cv_ / 0.25))
+    # A lively flame rewrites roughly a third of its own outline frame to frame.
+    # Saturate there so a merely turbulent fire already scores 1.0.
+    return float(min(1.0, (sum(changes) / len(changes)) / 0.33))
 
 
 def colour_evidence(frame, history=None) -> dict:
@@ -103,7 +166,7 @@ def colour_evidence(frame, history=None) -> dict:
         strength   float  0..1 combined colour+flicker confidence
     """
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    mask = _fire_mask(hsv)
+    mask = _fire_mask(hsv, frame)
 
     h, w = mask.shape[:2]
     frame_area = max(1, h * w)
@@ -144,6 +207,8 @@ def colour_evidence(frame, history=None) -> dict:
         "center": center,
         "area": area,
         "strength": round(float(min(1.0, strength)), 3),
+        # Stored by the caller and fed back in as history next frame.
+        "signature": mask_signature(mask),
     }
 
 
@@ -164,12 +229,36 @@ def is_standalone(evidence: dict) -> bool:
     """
     True when classical evidence alone justifies raising fire.
 
-    The bar here is much higher: a large, saturated, *flickering* region. This
-    is the path that catches the frames the network misses entirely, and it is
-    why the flicker term is mandatory rather than a bonus.
+    Two tiers, because flicker needs history and history needs time. On a slow
+    link the frame rate can fall to ~1 fps, and the flicker window then takes
+    several seconds to fill — during which a frame that is visibly *full* of
+    fire would raise nothing at all. That is the wrong failure for a safety
+    system, so overwhelming colour is allowed to raise on a reduced flicker bar.
+
+    Tier 1 — normal:       a large, saturated, clearly flickering region.
+    Tier 2 — overwhelming: the frame is mostly fire colour (many times the
+                           normal gate) and shows *some* movement. The ratio bar
+                           here is far above anything skin, clothing or timber
+                           produces after the skin mask, which is what keeps it
+                           from becoming a false-positive path.
+
+    Flicker is never dropped entirely. A perfectly static fire-coloured wall
+    must not raise an alarm at any ratio.
     """
-    return (
-        evidence["ratio"] >= config.FIRE_COLOUR_STANDALONE_RATIO
-        and evidence["flicker"] >= config.FIRE_COLOUR_STANDALONE_FLICKER
-        and evidence["blobs"] > 0
-    )
+    if evidence["blobs"] <= 0:
+        return False
+
+    ratio = evidence["ratio"]
+    flicker = evidence["flicker"]
+
+    # Tier 1 — the standard path.
+    if (ratio >= config.FIRE_COLOUR_STANDALONE_RATIO
+            and flicker >= config.FIRE_COLOUR_STANDALONE_FLICKER):
+        return True
+
+    # Tier 2 — overwhelming colour, reduced flicker requirement.
+    if (ratio >= config.FIRE_COLOUR_OVERWHELMING_RATIO
+            and flicker >= config.FIRE_COLOUR_OVERWHELMING_FLICKER):
+        return True
+
+    return False
