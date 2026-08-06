@@ -67,6 +67,54 @@ PEOPLE_MEMORY_FRAMES = _int("PEOPLE_MEMORY_FRAMES", 5)
 # Smoke threshold — tuned for a 640x480 frame, so it moves with the frame area.
 SMOKE_PIXEL_THRESHOLD = _int("SMOKE_PIXEL_THRESHOLD", 35000)
 
+# ------------------------------------------------------- classical fire fusion
+# The network is trained on 712 images and misses frames the corpus does not
+# represent. These control the classical colour+flicker channel that runs
+# alongside it. See fire_fusion.py for why colour alone is not sufficient.
+FIRE_FUSION_ENABLED = os.environ.get("FIRE_FUSION_ENABLED", "1") not in (
+    "0", "false", "False",
+)
+
+# Below this network confidence a detection is treated as weak and needs
+# classical corroboration before it counts.
+FIRE_WEAK_CONF = _float("FIRE_WEAK_CONF", 0.45)
+
+# Fraction of the frame that must be fire-coloured to corroborate a weak hit.
+FIRE_COLOUR_MIN_RATIO = _float("FIRE_COLOUR_MIN_RATIO", 0.004)
+
+# Fire colour ratio at which the colour term is considered fully saturated.
+FIRE_COLOUR_FULL_RATIO = _float("FIRE_COLOUR_FULL_RATIO", 0.06)
+
+# A contiguous region must cover at least this share of the frame to count.
+FIRE_COLOUR_MIN_BLOB_RATIO = _float("FIRE_COLOUR_MIN_BLOB_RATIO", 0.0012)
+
+# Standalone classical detection — the path that catches frames the network
+# misses entirely. Deliberately much stricter, and flicker is mandatory.
+FIRE_COLOUR_STANDALONE_RATIO = _float("FIRE_COLOUR_STANDALONE_RATIO", 0.018)
+FIRE_COLOUR_STANDALONE_FLICKER = _float("FIRE_COLOUR_STANDALONE_FLICKER", 0.28)
+
+# How many recent frames feed the flicker measurement.
+FIRE_COLOUR_HISTORY = _int("FIRE_COLOUR_HISTORY", 12)
+
+# ------------------------------------------------- temporal confirmation
+# Frames of evidence required before an alarm raises, and frames it holds after
+# evidence stops. Raising is cautious; clearing is slow. See hazard_state.py.
+FIRE_CONFIRM_FRAMES = _int("FIRE_CONFIRM_FRAMES", 2)
+FIRE_HOLD_FRAMES = _int("FIRE_HOLD_FRAMES", 12)
+SMOKE_CONFIRM_FRAMES = _int("SMOKE_CONFIRM_FRAMES", 3)
+SMOKE_HOLD_FRAMES = _int("SMOKE_HOLD_FRAMES", 8)
+
+# ------------------------------------------------------------ overlay polish
+# Ease detection boxes between frames so the overlay tracks instead of jitters.
+BOX_SMOOTHING = os.environ.get("BOX_SMOOTHING", "1") not in ("0", "false", "False")
+BOX_SMOOTHING_ALPHA = _float("BOX_SMOOTHING_ALPHA", 0.45)
+
+# ---------------------------------------------------------- severity scoring
+# Fire area ratio at which the extent term saturates.
+SEVERITY_FULL_FIRE_RATIO = _float("SEVERITY_FULL_FIRE_RATIO", 0.08)
+# Occupancy at which the people-at-risk term saturates.
+SEVERITY_FULL_OCCUPANCY = _int("SEVERITY_FULL_OCCUPANCY", 8)
+
 # Merge two detections into one person when their centres are closer than this.
 DUPLICATE_DISTANCE = _int("DUPLICATE_DISTANCE", 50)
 

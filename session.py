@@ -24,6 +24,12 @@ import uuid
 from dataclasses import dataclass, field
 
 import config
+from hazard_state import CameraHazard
+
+
+def _new_hazard() -> CameraHazard:
+    """Factory indirection so the dataclass default stays cheap to construct."""
+    return CameraHazard()
 
 
 @dataclass
@@ -44,6 +50,16 @@ class CameraState:
     fire_boxes: list = field(default_factory=list)
     smoke_detected: bool = False
 
+    # Temporal hazard state: confirmation streaks, hysteresis holds, colour
+    # history for flicker scoring, and box smoothing. Lives per camera because
+    # each camera sees a different part of the building and confirms
+    # independently. See hazard_state.py.
+    hazard: "CameraHazard" = field(default_factory=lambda: _new_hazard())
+
+    # Latest severity assessment, so other viewers can render it without
+    # recomputing.
+    severity: dict = field(default_factory=dict)
+
     # Latest JPEG exactly as the browser uploaded it, so other clients in the
     # same session can watch this feed. Only ONE frame is held per camera —
     # never a buffer — so memory is O(cameras), not O(frames).
@@ -60,8 +76,12 @@ class CameraState:
             "people": len(self.people_boxes),
             "boxes": self.people_boxes,
             "fire": self.fire_boxes,
-            "fire_detected": bool(self.fire_boxes),
-            "smoke": self.smoke_detected,
+            # Confirmed state, not raw per-frame evidence — the feed wall should
+            # show the same steady alarm the owning camera shows.
+            "fire_detected": self.hazard.fire.active,
+            "smoke": self.hazard.smoke.active,
+            "severity": self.severity.get("score", 0),
+            "level": self.severity.get("level", "NOMINAL"),
             "seq": self.frame_count,
             "age": round(now - self.last_jpeg_at, 2) if self.last_jpeg_at else None,
             "has_frame": self.last_jpeg is not None,

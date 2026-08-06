@@ -11,27 +11,37 @@ from __future__ import annotations
 import torch
 
 import config
+import fire_fusion
 import models_loader
 
 # Labels from the trained model that count as a fire event.
 FIRE_LABELS = {"fire", "smoke"}
 
 
-def detect_fire(frame):
+def detect_fire(frame, colour_history=None):
     """
     Run fire detection on a full-size BGR frame.
 
-    Returns (fire_detected, fire_center, fire_size, boxes) where:
+    Args:
+        frame:          BGR ndarray.
+        colour_history: recent fire-colour ratios from this camera, for flicker
+                        scoring. None disables the classical channel entirely.
+
+    Returns (fire_detected, fire_center, fire_size, boxes, evidence) where:
       fire_detected : bool
       fire_center   : (cx, cy) of the LARGEST detection, or None
       fire_size     : area in px of that largest detection
       boxes         : list of every accepted detection, as dicts:
                       {"box": [x1,y1,x2,y2], "label": str, "conf": float,
-                       "center": [cx,cy], "area": int}
+                       "center": [cx,cy], "area": int, "source": str}
+      evidence      : classical colour/flicker measurement (see fire_fusion)
 
-    The original returned only the *last* box the loop happened to see. Picking
-    the largest is both deterministic and a better proxy for the seat of the
-    fire; `boxes` exposes all of them so nothing is lost.
+    Detections are now graded rather than simply thresholded. A high-confidence
+    network hit stands on its own. A weak hit is kept only when classical
+    evidence corroborates it. And when the network returns nothing at all but
+    the frame shows a large, flickering, saturated fire-coloured region, a
+    synthetic box is raised from that region — this is the path that covers the
+    frames the 712-image corpus does not represent.
     """
     model = models_loader.get_fire_model()
 
@@ -43,7 +53,19 @@ def detect_fire(frame):
             verbose=False,
         )
 
-    boxes = []
+    # ------------------------------------------------- classical evidence
+    if config.FIRE_FUSION_ENABLED:
+        evidence = fire_fusion.colour_evidence(frame, colour_history)
+    else:
+        evidence = {
+            "ratio": 0.0, "flicker": 0.0, "blobs": 0,
+            "box": None, "center": None, "area": 0, "strength": 0.0,
+        }
+
+    corroborated = config.FIRE_FUSION_ENABLED and fire_fusion.is_corroborating(evidence)
+
+    # --------------------------------------------------- network detections
+    raw = []
 
     for r in results:
         if r.boxes is None:
@@ -63,7 +85,7 @@ def detect_fire(frame):
             x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
             area = max(0, x2 - x1) * max(0, y2 - y1)
 
-            boxes.append(
+            raw.append(
                 {
                     "box": [x1, y1, x2, y2],
                     "label": label,
@@ -73,8 +95,36 @@ def detect_fire(frame):
                 }
             )
 
+    boxes = []
+
+    for b in raw:
+        if b["conf"] >= config.FIRE_WEAK_CONF:
+            b["source"] = "model"
+            boxes.append(b)
+        elif corroborated:
+            # The network suspected fire and the frame agrees. Keeping this is
+            # the difference between catching a small flame and missing it.
+            b["source"] = "model+colour"
+            boxes.append(b)
+        # else: weak hit with no physical support — dropped, as before.
+
+    # ------------------------------------------------- standalone fallback
+    if not boxes and config.FIRE_FUSION_ENABLED and fire_fusion.is_standalone(evidence):
+        boxes.append(
+            {
+                "box": evidence["box"],
+                "label": "fire",
+                # Reported as a real but lower confidence so the UI and the
+                # severity score can tell this apart from a network detection.
+                "conf": round(0.35 + 0.4 * evidence["strength"], 3),
+                "center": evidence["center"],
+                "area": evidence["area"],
+                "source": "colour",
+            }
+        )
+
     if not boxes:
-        return False, None, 0, []
+        return False, None, 0, [], evidence
 
     largest = max(boxes, key=lambda b: b["area"])
-    return True, tuple(largest["center"]), largest["area"], boxes
+    return True, tuple(largest["center"]), largest["area"], boxes, evidence

@@ -644,3 +644,171 @@ button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HAZARD SEVERITY
+   One number, its trend, and the reason for it. Sits directly under the
+   directive because an operator reads top-down: what to do, then how bad.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.severity {
+  margin: 0 var(--gap) var(--gap);
+  padding: 13px 18px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink-mute);
+  border-radius: var(--r);
+  transition: border-color .35s ease, background .35s ease;
+}
+
+.sev-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.sev-label {
+  font-family: var(--body);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  color: var(--ink-mute);
+}
+
+.sev-level {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  color: var(--ink-mid);
+  transition: color .35s ease;
+}
+
+.sev-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sev-score {
+  font-family: var(--display);
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 74px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transition: color .35s ease;
+}
+
+.sev-track {
+  position: relative;
+  flex: 1;
+  height: 9px;
+  background: var(--line-soft);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.sev-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 5px;
+  background: var(--ink-mute);
+  /* Eased so the bar sweeps rather than snaps — the movement is what the
+     eye catches during a demo. */
+  transition: width .45s cubic-bezier(.22,.61,.36,1), background .35s ease;
+}
+
+.sev-tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--void);
+  opacity: .55;
+}
+
+.sev-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.sev-parts span {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  color: var(--ink-mute);
+}
+
+.sev-parts b {
+  color: var(--ink-mid);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sev-note {
+  margin: 9px 0 0;
+  font-family: var(--body);
+  font-size: 11.5px;
+  color: var(--smoke);
+  letter-spacing: .02em;
+}
+
+/* ── level states ────────────────────────────────────────────────────── */
+
+.severity[data-level="ELEVATED"] { border-left-color: var(--smoke); }
+.severity[data-level="ELEVATED"] .sev-level,
+.severity[data-level="ELEVATED"] .sev-score { color: var(--smoke); }
+.severity[data-level="ELEVATED"] .sev-fill  { background: var(--smoke); }
+
+.severity[data-level="HIGH"] {
+  border-left-color: #FF6A1F;
+  background: linear-gradient(90deg, rgba(255,106,31,.07), transparent 55%);
+}
+.severity[data-level="HIGH"] .sev-level,
+.severity[data-level="HIGH"] .sev-score { color: #FF6A1F; }
+.severity[data-level="HIGH"] .sev-fill  { background: #FF6A1F; }
+
+.severity[data-level="CRITICAL"] {
+  border-left-color: var(--fire);
+  background: linear-gradient(90deg, rgba(255,59,33,.11), transparent 60%);
+  animation: sev-alarm 1.5s ease-in-out infinite;
+}
+.severity[data-level="CRITICAL"] .sev-level,
+.severity[data-level="CRITICAL"] .sev-score { color: var(--fire); }
+.severity[data-level="CRITICAL"] .sev-fill  { background: var(--fire); }
+
+@keyframes sev-alarm {
+  0%, 100% { border-left-color: var(--fire); }
+  50%      { border-left-color: #7A1509; }
+}
+
+/* Confirming: evidence is accumulating but the alarm has not raised. Shown
+   so the operator can see the system working rather than hanging. */
+.severity[data-confirming="1"] .sev-level::after {
+  content: " · CONFIRMING";
+  font-size: 11px;
+  letter-spacing: .1em;
+  color: var(--ink-mute);
+}
+
+.severity[data-holding="1"] .sev-level::after {
+  content: " · HOLD";
+  font-size: 11px;
+  letter-spacing: .1em;
+  color: var(--ink-mute);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .severity, .sev-fill { animation: none; transition: none; }
+}
+
+@media (max-width: 620px) {
+  .sev-score { font-size: 38px; min-width: 60px; }
+  .sev-parts { gap: 10px; }
+  .sev-parts span { font-size: 9.5px; }
+}

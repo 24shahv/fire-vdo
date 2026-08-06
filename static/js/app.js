@@ -71,6 +71,13 @@
   const fireBadge = $("fireBadge");
   const smokeBadge= $("smokeBadge");
 
+  const sevBox    = $("severity");
+  const sevScore  = $("sevScore");
+  const sevLevel  = $("sevLevel");
+  const sevFill   = $("sevFill");
+  const sevParts  = $("sevParts");
+  const sevNote   = $("sevNote");
+
   const octx = overlay.getContext("2d");
   const mctx = minimap.getContext("2d");
 
@@ -605,7 +612,68 @@
 
     elOverride.hidden = !data.exit.override;
 
+    setSeverity(data);
     setDirective(data);
+  }
+
+  // ── hazard severity ───────────────────────────────────────────────────
+  // The score is animated toward its target rather than snapped. A gauge that
+  // jumps reads as a state change; one that sweeps reads as a measurement, and
+  // the movement is what draws the eye to it.
+  let sevShown = 0;
+  let sevRaf = null;
+
+  function setSeverity(data) {
+    const sev = data.severity;
+    if (!sev) return;
+
+    const target = sev.score | 0;
+
+    sevBox.dataset.level = sev.level;
+    sevLevel.textContent = sev.level;
+    sevFill.style.width = Math.min(100, target) + "%";
+
+    const hs = data.hazard_state && data.hazard_state.fire;
+    sevBox.dataset.confirming = hs && hs.confirming ? "1" : "0";
+    sevBox.dataset.holding = hs && hs.holding ? "1" : "0";
+
+    // Component breakdown — why the number is what it is.
+    const c = sev.components || {};
+    sevParts.querySelectorAll("span").forEach((el) => {
+      const v = c[el.dataset.k];
+      const b = el.querySelector("b");
+      if (b) b.textContent = v === undefined ? "0" : Math.round(v);
+      el.style.opacity = v > 0 ? "1" : ".42";
+    });
+
+    // Surface the one fact the operator most needs beyond the score.
+    let note = "";
+    if (hs && hs.confirming) {
+      note = `Confirming fire — frame ${hs.streak} of ${hs.needs}`;
+    } else if (hs && hs.holding) {
+      note = "Alarm held: evidence paused, hazard assumed present";
+    } else if ((c.egress || 0) > 0) {
+      note = "An exit is compromised — routing has been re-solved";
+    } else if (data.exit && data.exit.override) {
+      note = "Crowd threshold reached — single-exit directive issued";
+    }
+    sevNote.textContent = note;
+    sevNote.hidden = !note;
+
+    if (sevRaf) cancelAnimationFrame(sevRaf);
+    const step = () => {
+      const diff = target - sevShown;
+      if (Math.abs(diff) < 0.6) {
+        sevShown = target;
+        sevScore.textContent = target;
+        sevRaf = null;
+        return;
+      }
+      sevShown += diff * 0.22;
+      sevScore.textContent = Math.round(sevShown);
+      sevRaf = requestAnimationFrame(step);
+    };
+    step();
   }
 
   function fmtLoad(v) {

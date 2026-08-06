@@ -21,6 +21,7 @@ from fire_detection import detect_fire
 from pathfinding import find_safe_path
 from people_detection import detect_people
 from session import Session
+from hazard_state import compute_severity
 from smoke_detection import detect_smoke
 from utils import map_to_grid, remove_duplicate_people
 
@@ -116,14 +117,38 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
         run_detection = cam.should_run_detection()
 
     # ---------------------------------------------------------- fire + smoke
-    fire_detected, fire_center, fire_size, fire_boxes = detect_fire(frame)
+    with session.lock:
+        colour_history = list(cam.hazard.colour_history)
+
+    fire_raw, fire_center, fire_size, fire_boxes, evidence = detect_fire(
+        frame, colour_history
+    )
+
+    smoke_raw, smoke_pixels, smoke_limit = detect_smoke(frame)
+
+    # Temporal confirmation. `fire_raw` is this frame's evidence; `fire_detected`
+    # is the confirmed alarm, which needs several frames to raise and holds for
+    # several after evidence stops. Everything downstream uses the confirmed
+    # value so the directive cannot flicker frame to frame.
+    with session.lock:
+        cam.hazard.push_colour(evidence["ratio"])
+        fire_detected = cam.hazard.fire.update(fire_raw)
+        smoke_detected = cam.hazard.smoke.update(smoke_raw)
+        fire_state = cam.hazard.fire.state()
+        smoke_state = cam.hazard.smoke.state()
+        fire_boxes = cam.hazard.smooth_boxes(fire_boxes)
 
     fire_grid_positions = []
     for box in fire_boxes:
         cx, cy = box["center"]
         fire_grid_positions.append(map_to_grid(cx, cy, w, h))
 
-    smoke_detected, smoke_pixels, smoke_limit = detect_smoke(frame)
+    # Hold the last known hazard cells through a hysteresis gap, otherwise the
+    # map clears the fire while the alarm is still up — which would route people
+    # straight back through it.
+    if fire_detected and not fire_grid_positions:
+        with session.lock:
+            fire_grid_positions = list(cam.fire_grid)
 
     # -------------------------------------------------------------- people
     # Detect on a small copy — the filters in people_detection.py are tuned for
@@ -193,8 +218,10 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
         for other in session.cameras.values():
             global_people.extend(other.people_grid)
             global_fire_positions.extend(other.fire_grid)
-            fire_detected_global = fire_detected_global or bool(other.fire_boxes)
-            smoke_detected_global = smoke_detected_global or other.smoke_detected
+            # Confirmed state, not raw boxes: a camera holding an alarm through
+            # hysteresis must still count as seeing fire for the whole building.
+            fire_detected_global = fire_detected_global or other.hazard.fire.active
+            smoke_detected_global = smoke_detected_global or other.hazard.smoke.active
 
     global_people = remove_duplicate_people(global_people)
     total_people = len(global_people)
@@ -222,6 +249,29 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
         exit_text = "USE EXIT B"
         exit_name = "B"
         direction = "left"
+
+    # ------------------------------------------------------------ severity
+    # An exit scoring the 999 sentinel has been disqualified by fire proximity;
+    # that is what "blocked" means here.
+    exits_blocked = sum(1 for v in exit_load.values() if v >= 999)
+
+    fire_area_px = sum(b.get("area", 0) for b in fire_boxes)
+    fire_area_ratio = fire_area_px / max(1, w * h)
+
+    severity = compute_severity(
+        fire_active=fire_detected_global,
+        fire_boxes=fire_boxes,
+        fire_area_ratio=fire_area_ratio,
+        smoke_active=smoke_detected_global,
+        smoke_ratio=smoke_pixels / max(1, smoke_limit),
+        people_count=total_people,
+        exits_total=len(config.EXITS),
+        exits_blocked=exits_blocked,
+        colour_strength=evidence["strength"],
+    )
+
+    with session.lock:
+        cam.severity = severity
 
     # ------------------------------------------------------------- arrows
     # Only this camera's people get arrows; each browser draws its own view.
@@ -260,6 +310,9 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
             "fire": fire_boxes,
             "people": cam_people_boxes,
         },
+        "severity": severity,
+        "hazard_state": {"fire": fire_state, "smoke": smoke_state},
+        "evidence": evidence,
         "smoke": {
             "detected": smoke_detected,
             "pixels": smoke_pixels,
@@ -273,6 +326,7 @@ def process_frame(session: Session, cam_id: int, payload: bytes) -> dict:
         },
         "fire": {
             "detected": fire_detected,
+            "raw": fire_raw,
             "any_camera": fire_detected_global,
             "center": list(fire_center) if fire_center else None,
             "size": fire_size,
