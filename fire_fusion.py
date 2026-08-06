@@ -165,6 +165,21 @@ def colour_evidence(frame, history=None) -> dict:
         area       int    pixel area of the largest region
         strength   float  0..1 combined colour+flicker confidence
     """
+    # Work on a downscaled copy. Every quantity this function returns is either
+    # a ratio (scale-invariant) or a geometry that can be scaled back up, so the
+    # only thing lost is a few pixels of box precision — while the mask and
+    # morphology work, which is the whole cost here, drops with the area.
+    full_h, full_w = frame.shape[:2]
+    scale = 1.0
+
+    if config.COLOUR_EVIDENCE_MAX_WIDTH and full_w > config.COLOUR_EVIDENCE_MAX_WIDTH:
+        scale = config.COLOUR_EVIDENCE_MAX_WIDTH / float(full_w)
+        frame = cv2.resize(
+            frame,
+            (config.COLOUR_EVIDENCE_MAX_WIDTH, max(1, int(round(full_h * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
+
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = _fire_mask(hsv, frame)
 
@@ -185,8 +200,15 @@ def colour_evidence(frame, history=None) -> dict:
     if regions:
         largest = max(regions, key=cv2.contourArea)
         x, y, bw, bh = cv2.boundingRect(largest)
-        box = [int(x), int(y), int(x + bw), int(y + bh)]
-        center = [int(x + bw // 2), int(y + bh // 2)]
+
+        # Back to full-frame coordinates. Callers — the synthetic fire box, the
+        # grid projection — all work in the uploaded frame's space, so anything
+        # geometric has to be undone here rather than left at working scale.
+        inv = 1.0 / scale if scale else 1.0
+        x, y, bw, bh = (int(round(v * inv)) for v in (x, y, bw, bh))
+
+        box = [x, y, x + bw, y + bh]
+        center = [x + bw // 2, y + bh // 2]
         area = int(bw * bh)
 
     flicker = _flicker_score(list(history)) if history is not None else 0.0

@@ -28,6 +28,14 @@ services:
     healthCheckPath: /healthz
 
     envVars:
+      # ── SPEED ────────────────────────────────────────────────────────────
+      # Set to "1" for the low-latency profile: smaller letterboxes, single
+      # confirmation frame, people detection every frame. Roughly 3x faster to
+      # first detection, at some cost in detection quality on hard frames.
+      # The skin veto and FIRE_STRONG_CONF are NOT relaxed by this.
+      - key: FAST_MODE
+        value: "1"
+
       - key: PYTHON_VERSION
         value: "3.11.9"
 

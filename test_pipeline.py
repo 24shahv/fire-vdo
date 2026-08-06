@@ -127,6 +127,7 @@ if need > 1:
     check("frame 1: alarm not yet confirmed", v1["fire"]["detected"] is False,
           f"needs {need} frames")
 
+v = v1
 for i in range(need - 1):
     v = process_frame(s, 0, jpeg(flame()))
 check(f"frame {need}: alarm confirmed", v["fire"]["detected"] is True)
